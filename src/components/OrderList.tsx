@@ -7,22 +7,41 @@ import { PaymentModal } from './PaymentModal';
 
 interface OrderListProps {
   onSelectOrder: (tableNum: string) => void;
+  onNewOrder: () => void; // NEW: Callback to navigate to Tables tab
 }
 
-export const OrderList: React.FC<OrderListProps> = ({ onSelectOrder }) => {
+export const OrderList: React.FC<OrderListProps> = ({ onSelectOrder, onNewOrder }) => {
   const [paymentOrder, setPaymentOrder] = useState<Order | null>(null);
   const [openStatusMenuId, setOpenStatusMenuId] = useState<string | null>(null);
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
 
   const activeOrders = useLiveQuery(async () => {
     return await db.orders.where('status').noneOf(['paid', 'cancelled']).reverse().sortBy('updatedAt');
   });
+
+  // Get order items for each order
+  const orderItemsMap = useLiveQuery(async () => {
+    const orders = await db.orders.where('status').noneOf(['paid', 'cancelled']).toArray();
+    const itemsMap: { [orderId: string]: any[] } = {};
+    
+    for (const order of orders) {
+      const items = await db.orderItems.where({ orderId: order.id }).toArray();
+      itemsMap[order.id] = items;
+    }
+    
+    return itemsMap;
+  }, []);
 
   const handleStatusUpdate = async (orderId: string, status: 'order' | 'served') => {
     await orderService.updateStatus(orderId, status);
     setOpenStatusMenuId(null);
   };
 
-  // FEATURE 4: Render table history breadcrumb
+  const handleDeleteOrder = async (orderId: string) => {
+    await orderService.deleteOrder(orderId);
+    setDeleteConfirmId(null);
+  };
+
   const renderTableHistory = (order: Order) => {
     const history = order.tableHistory || [order.tableNumber];
     
@@ -44,7 +63,6 @@ export const OrderList: React.FC<OrderListProps> = ({ onSelectOrder }) => {
     );
   };
 
-  // FEATURE 6: Display customer name for walk-ins
   const renderCustomerInfo = (order: Order) => {
     if (order.customerName) {
       return (
@@ -59,6 +77,34 @@ export const OrderList: React.FC<OrderListProps> = ({ onSelectOrder }) => {
     return renderTableHistory(order);
   };
 
+  const renderOrderItems = (orderId: string) => {
+    const items = orderItemsMap?.[orderId] || [];
+    
+    if (items.length === 0) {
+      return <span className="text-gray-400 text-sm">No items</span>;
+    }
+
+    // Group items by name and sum quantities
+    const grouped = items.reduce((acc: any, item: any) => {
+      if (acc[item.itemName]) {
+        acc[item.itemName] += item.quantity;
+      } else {
+        acc[item.itemName] = item.quantity;
+      }
+      return acc;
+    }, {});
+
+    return (
+      <div className="space-y-1">
+        {Object.entries(grouped).map(([name, qty]: [string, any]) => (
+          <div key={name} className="text-sm text-gray-700">
+            {name} × {qty}
+          </div>
+        ))}
+      </div>
+    );
+  };
+
   return (
     <div className="max-w-6xl mx-auto animate-fade-in pb-20">
       <div className="flex justify-between items-center mb-8">
@@ -66,6 +112,12 @@ export const OrderList: React.FC<OrderListProps> = ({ onSelectOrder }) => {
            <h2 className="text-2xl font-bold text-gray-800">Active Orders</h2>
            <p className="text-gray-500 text-sm">Manage Kitchen & Payments</p>
         </div>
+        <button 
+          onClick={onNewOrder}
+          className="px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg shadow-md transition-colors"
+        >
+          + New Order
+        </button>
       </div>
       
       <div className="bg-white shadow rounded-xl overflow-visible border border-gray-200">
@@ -73,14 +125,14 @@ export const OrderList: React.FC<OrderListProps> = ({ onSelectOrder }) => {
           <thead className="bg-gray-100 text-gray-600 text-sm uppercase font-bold tracking-wider">
             <tr>
               <th className="py-4 px-6 text-left">Table / Customer</th>
-              <th className="py-4 px-6 text-left">Bill Total</th>
-              <th className="py-4 px-6 text-left">Kitchen Status</th>
+              <th className="py-4 px-6 text-left">Items</th>
+              <th className="py-4 px-6 text-left">Bill Amount</th>
+              <th className="py-4 px-6 text-left">Status</th>
               <th className="py-4 px-6 text-center">Action</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
             {activeOrders?.map((order) => {
-              // FEATURE 3: Check if payment is allowed
               const canPay = order.status === 'served';
               
               return (
@@ -91,6 +143,10 @@ export const OrderList: React.FC<OrderListProps> = ({ onSelectOrder }) => {
                     <div className="text-xs text-gray-400">
                       {new Date(order.createdAt).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}
                     </div>
+                  </td>
+
+                  <td className="py-4 px-6">
+                    {renderOrderItems(order.id)}
                   </td>
 
                   <td className="py-4 px-6 font-bold text-gray-700">₹{order.totalAmount}</td>
@@ -136,7 +192,6 @@ export const OrderList: React.FC<OrderListProps> = ({ onSelectOrder }) => {
                         Edit
                       </button>
                       
-                      {/* FEATURE 3: Payment Button with Validation */}
                       <div className="relative group/pay">
                         <button 
                           onClick={() => canPay && setPaymentOrder(order)} 
@@ -149,7 +204,6 @@ export const OrderList: React.FC<OrderListProps> = ({ onSelectOrder }) => {
                           Pay Bill
                         </button>
                         
-                        {/* FEATURE 3: Tooltip for disabled state */}
                         {!canPay && (
                           <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 opacity-0 group-hover/pay:opacity-100 transition-opacity pointer-events-none z-50">
                             <div className="bg-gray-900 text-white text-xs px-3 py-2 rounded-lg whitespace-nowrap">
@@ -159,23 +213,60 @@ export const OrderList: React.FC<OrderListProps> = ({ onSelectOrder }) => {
                           </div>
                         )}
                       </div>
+
+                      <button
+                        onClick={() => setDeleteConfirmId(order.id)}
+                        className="text-red-400 hover:text-red-600 font-bold text-sm"
+                      >
+                        Delete
+                      </button>
                     </div>
                   </td>
                 </tr>
               );
             })}
              {(!activeOrders || activeOrders.length === 0) && (
-               <tr><td colSpan={4} className="text-center py-10 text-gray-400">No active orders.</td></tr>
+               <tr><td colSpan={5} className="text-center py-10 text-gray-400">No active orders.</td></tr>
             )}
           </tbody>
         </table>
       </div>
+
       {paymentOrder && (
         <PaymentModal 
           order={paymentOrder} 
           onClose={() => setPaymentOrder(null)} 
           onSuccess={() => setPaymentOrder(null)} 
         />
+      )}
+
+      {deleteConfirmId && (
+        <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl p-8 w-96 shadow-2xl text-center">
+            <div className="w-16 h-16 bg-red-100 text-red-600 rounded-full flex items-center justify-center mx-auto mb-4 text-3xl">
+              ⚠️
+            </div>
+            <h3 className="text-2xl font-bold text-gray-800 mb-2">Delete Order?</h3>
+            <p className="text-gray-600 mb-6">
+              This action cannot be undone.
+            </p>
+            
+            <div className="flex gap-3">
+              <button
+                onClick={() => setDeleteConfirmId(null)}
+                className="flex-1 py-3 bg-gray-100 text-gray-600 font-bold rounded-xl hover:bg-gray-200"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => handleDeleteOrder(deleteConfirmId)}
+                className="flex-1 py-3 bg-red-600 text-white font-bold rounded-xl hover:bg-red-700"
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
