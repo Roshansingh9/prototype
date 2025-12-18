@@ -22,6 +22,8 @@ export interface Product {
 export interface Order {
   id: string;
   tableNumber: string;
+  customerName?: string; // NEW: For walk-in custom names
+  tableHistory?: string[]; // NEW: Track table movements ["A1", "B2", "C3"]
   status: 'order' | 'served' | 'paid' | 'cancelled';
   createdAt: string;
   updatedAt: string;
@@ -40,7 +42,7 @@ export interface OrderItem {
   quantity: number;
   rate: number;
   total: number;
-  originalTable?: string; // NEW: To track merged items (e.g., "Table 1")
+  originalTable?: string;
 }
 
 export class RestaurantDB extends Dexie {
@@ -52,12 +54,12 @@ export class RestaurantDB extends Dexie {
   constructor() {
     super('RestaurantPOS_DB');
     
-    // UPDATE TO VERSION 5
-    this.version(5).stores({
+    // UPDATE TO VERSION 6 to add new fields
+    this.version(6).stores({
       categories: 'id, name, isActive', 
       products: 'id, categoryId, name, isActive, isAvailableNow',
       orders: 'id, tableNumber, status, createdAt, paidAt, exportedToExcel',
-      orderItems: '++id, orderId' // Index remains same
+      orderItems: '++id, orderId'
     });
   }
 }
