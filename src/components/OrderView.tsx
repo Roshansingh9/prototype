@@ -1,4 +1,4 @@
-// src/components/OrderView.tsx - EXACT MATCH TO HTML UX
+// src/components/OrderView.tsx - Enhanced with Customer Name Edit & Color-Coded Tables
 import React, { useState, useEffect } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db, type Order, type Product } from '../db/db';
@@ -20,7 +20,11 @@ const ALL_TABLES = [
 const DAYS_MAP = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
 export const OrderView: React.FC<OrderViewProps> = ({ order, onBack }) => {
-  const orderItems = useLiveQuery(() => orderService.getOrderItems(order.id), [order.id]);
+  // Use live query to get real-time updates
+  const liveOrder = useLiveQuery(() => db.orders.get(order.id), [order.id]);
+  const currentOrder = liveOrder || order;
+  
+  const orderItems = useLiveQuery(() => orderService.getOrderItems(currentOrder.id), [currentOrder.id]);
   const categories = useLiveQuery(() => db.categories.toArray(), []);
   const allProducts = useLiveQuery(() => db.products.toArray(), []);
   const activeTables = useLiveQuery(() => orderService.getActiveTables(), []) || [];
@@ -29,9 +33,13 @@ export const OrderView: React.FC<OrderViewProps> = ({ order, onBack }) => {
   const [itemQuantities, setItemQuantities] = useState<{ [key: string]: number }>({});
   
   const [isChangingTable, setIsChangingTable] = useState(false);
-  const [tableName, setTableName] = useState(order.tableNumber);
+  const [tableName, setTableName] = useState(currentOrder.tableNumber);
   const [showPayModal, setShowPayModal] = useState(false);
   const [pendingMergeTable, setPendingMergeTable] = useState<string | null>(null);
+  
+  // NEW: Customer name editing
+  const [isEditingCustomer, setIsEditingCustomer] = useState(false);
+  const [editedCustomerName, setEditedCustomerName] = useState(currentOrder.customerName || '');
 
   const orderTotal = orderItems?.reduce((sum, item) => sum + item.total, 0) || 0;
   const itemCount = orderItems?.length || 0;
@@ -102,6 +110,16 @@ export const OrderView: React.FC<OrderViewProps> = ({ order, onBack }) => {
     }
   };
 
+  // NEW: Save customer name (allows empty to clear name)
+  const handleSaveCustomerName = async () => {
+    const finalName = editedCustomerName.trim();
+    await db.orders.update(currentOrder.id, {
+      customerName: finalName || undefined, // Clear if empty
+      updatedAt: new Date().toISOString()
+    });
+    setIsEditingCustomer(false);
+  };
+
   const handlePlaceOrder = () => {
     if (itemCount === 0 || orderTotal <= 0) {
       alert("⚠️ Add at least one item to place order");
@@ -126,11 +144,56 @@ export const OrderView: React.FC<OrderViewProps> = ({ order, onBack }) => {
     <div className="bg-gray-100 min-h-screen">
       <div className="menu-container max-w-4xl mx-auto bg-white shadow-xl min-h-screen">
         
-        {/* HEADER - Matching HTML */}
+        {/* HEADER - With Editable Customer Name */}
         <header className="sticky top-0 bg-indigo-700 text-white p-4 border-b z-10 shadow-lg flex justify-between items-center">
-          <div>
+          <div className="flex-1">
             <h1 className="text-2xl font-extrabold">The Classy Menu</h1>
-            <p className="text-indigo-200 text-sm italic">Table: {tableName}</p>
+            
+            {/* CUSTOMER NAME SECTION - Always Editable */}
+            <div className="flex items-center gap-2 mt-1">
+              <p className="text-indigo-200 text-sm italic">Table: {tableName}</p>
+              <span className="text-indigo-300">•</span>
+              {!isEditingCustomer ? (
+                <div className="flex items-center gap-2">
+                  <span className="text-orange-300 text-sm font-bold">
+                    👤 {currentOrder.customerName || 'No Name'}
+                  </span>
+                  <button
+                    onClick={() => {
+                      setIsEditingCustomer(true);
+                      setEditedCustomerName(currentOrder.customerName || '');
+                    }}
+                    className="text-indigo-300 hover:text-white text-xs underline"
+                  >
+                    {currentOrder.customerName ? 'edit' : 'add name'}
+                  </button>
+                </div>
+              ) : (
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    value={editedCustomerName}
+                    onChange={(e) => setEditedCustomerName(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && handleSaveCustomerName()}
+                    className="px-2 py-1 rounded text-sm text-gray-800 font-bold w-32"
+                    placeholder="Customer name"
+                    autoFocus
+                  />
+                  <button
+                    onClick={handleSaveCustomerName}
+                    className="bg-green-500 hover:bg-green-600 px-2 py-1 rounded text-xs font-bold"
+                  >
+                    ✓
+                  </button>
+                  <button
+                    onClick={() => setIsEditingCustomer(false)}
+                    className="bg-red-500 hover:bg-red-600 px-2 py-1 rounded text-xs font-bold"
+                  >
+                    ✕
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
           <div className="flex gap-2">
             {!isChangingTable ? (
@@ -157,7 +220,7 @@ export const OrderView: React.FC<OrderViewProps> = ({ order, onBack }) => {
           </div>
         </header>
 
-        {/* TABLE CHANGE DROPDOWN - Matching HTML */}
+        {/* TABLE CHANGE DROPDOWN - Color-coded by availability */}
         {isChangingTable && (
           <div className="bg-yellow-50 border-b border-yellow-200 p-4">
             <label className="block text-sm font-bold text-gray-700 mb-2">Select New Table:</label>
@@ -166,12 +229,32 @@ export const OrderView: React.FC<OrderViewProps> = ({ order, onBack }) => {
               value={tableName}
               onChange={(e) => initiateTableChange(e.target.value)}
             >
-              {ALL_TABLES.map(table => (
-                <option key={table} value={table}>
-                  Table {table} {activeTables.includes(table) && table !== order.tableNumber ? '(Occupied)' : ''}
-                </option>
-              ))}
+              {ALL_TABLES.map(table => {
+                const isOccupied = activeTables.includes(table) && table !== order.tableNumber;
+                return (
+                  <option 
+                    key={table} 
+                    value={table}
+                    style={{ 
+                      color: isOccupied ? '#DC2626' : '#16A34A',
+                      fontWeight: 'bold'
+                    }}
+                  >
+                    {table} {isOccupied ? '🔴 Occupied' : '🟢 Available'}
+                  </option>
+                );
+              })}
             </select>
+            <div className="mt-3 flex items-center gap-4 text-xs">
+              <div className="flex items-center gap-1">
+                <span className="w-3 h-3 rounded-full bg-green-500"></span>
+                <span className="text-gray-600">Available</span>
+              </div>
+              <div className="flex items-center gap-1">
+                <span className="w-3 h-3 rounded-full bg-red-500"></span>
+                <span className="text-gray-600">Occupied (will merge bills)</span>
+              </div>
+            </div>
           </div>
         )}
 
@@ -180,7 +263,7 @@ export const OrderView: React.FC<OrderViewProps> = ({ order, onBack }) => {
           {/* LEFT SECTION - Menu Items (2/3 width) */}
           <section className="md:col-span-2">
             
-            {/* CATEGORY FILTER DROPDOWN - Matching HTML */}
+            {/* CATEGORY FILTER DROPDOWN */}
             <div className="bg-white p-4 mb-4 rounded-xl border border-gray-200 shadow-sm">
               <h3 className="text-xl font-bold text-gray-800 mb-3">Filter Menu</h3>
               <select 
@@ -196,7 +279,7 @@ export const OrderView: React.FC<OrderViewProps> = ({ order, onBack }) => {
               </select>
             </div>
 
-            {/* MENU ITEMS LIST - Matching HTML */}
+            {/* MENU ITEMS LIST */}
             <h2 className="text-2xl font-bold text-gray-800 mb-4 border-b pb-2">Menu Items</h2>
             <div className="space-y-4">
               {filteredProducts.length === 0 ? (
@@ -256,7 +339,7 @@ export const OrderView: React.FC<OrderViewProps> = ({ order, onBack }) => {
             </div>
           </section>
 
-          {/* RIGHT SIDEBAR - Cart (1/3 width) - Matching HTML */}
+          {/* RIGHT SIDEBAR - Cart (1/3 width) */}
           <aside className="md:col-span-1 sticky top-20 h-fit bg-white p-4 rounded-xl shadow-lg border">
             <h2 className="text-xl font-bold text-gray-800 mb-4 border-b pb-2">Your Current Tab & Cart</h2>
 
@@ -307,7 +390,7 @@ export const OrderView: React.FC<OrderViewProps> = ({ order, onBack }) => {
 
             <hr className="my-4 border-dashed" />
 
-            {/* CART TOTAL - Matching HTML */}
+            {/* CART TOTAL */}
             <div className="pt-4 border-t-2">
               <div className="flex justify-between items-center text-xl font-extrabold mb-4">
                 <span>Cart Total:</span>
@@ -347,14 +430,14 @@ export const OrderView: React.FC<OrderViewProps> = ({ order, onBack }) => {
         </main>
       </div>
 
-      {/* Footer - Matching HTML */}
+      {/* Footer */}
       <footer className="text-center py-3 text-xs bg-gray-200 text-gray-600">
         Restaurant POS System
       </footer>
 
       {showPayModal && (
         <PaymentModal 
-          order={order} 
+          order={currentOrder} 
           onClose={() => setShowPayModal(false)} 
           onSuccess={() => { setShowPayModal(false); onBack(); }} 
         />

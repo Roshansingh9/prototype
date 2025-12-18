@@ -1,4 +1,4 @@
-// src/components/OrderList.tsx
+// src/components/OrderList.tsx - Updated with Full Date/Time
 import React, { useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db, type Order } from '../db/db';
@@ -7,7 +7,7 @@ import { PaymentModal } from './PaymentModal';
 
 interface OrderListProps {
   onSelectOrder: (tableNum: string) => void;
-  onNewOrder: () => void; // NEW: Callback to navigate to Tables tab
+  onNewOrder: () => void;
 }
 
 export const OrderList: React.FC<OrderListProps> = ({ onSelectOrder, onNewOrder }) => {
@@ -19,7 +19,6 @@ export const OrderList: React.FC<OrderListProps> = ({ onSelectOrder, onNewOrder 
     return await db.orders.where('status').noneOf(['paid', 'cancelled']).reverse().sortBy('updatedAt');
   });
 
-  // Get order items for each order
   const orderItemsMap = useLiveQuery(async () => {
     const orders = await db.orders.where('status').noneOf(['paid', 'cancelled']).toArray();
     const itemsMap: { [orderId: string]: any[] } = {};
@@ -77,6 +76,22 @@ export const OrderList: React.FC<OrderListProps> = ({ onSelectOrder, onNewOrder 
     return renderTableHistory(order);
   };
 
+  // NEW: Format full date and time
+  const formatDateTime = (dateString: string) => {
+    const date = new Date(dateString);
+    const dateStr = date.toLocaleDateString('en-IN', { 
+      day: '2-digit', 
+      month: 'short', 
+      year: 'numeric' 
+    });
+    const timeStr = date.toLocaleTimeString('en-IN', {
+      hour: '2-digit', 
+      minute: '2-digit',
+      hour12: true
+    });
+    return `${dateStr}, ${timeStr}`;
+  };
+
   const renderOrderItems = (orderId: string) => {
     const items = orderItemsMap?.[orderId] || [];
     
@@ -84,7 +99,6 @@ export const OrderList: React.FC<OrderListProps> = ({ onSelectOrder, onNewOrder 
       return <span className="text-gray-400 text-sm">No items</span>;
     }
 
-    // Group items by name and sum quantities
     const grouped = items.reduce((acc: any, item: any) => {
       if (acc[item.itemName]) {
         acc[item.itemName] += item.quantity;
@@ -140,8 +154,8 @@ export const OrderList: React.FC<OrderListProps> = ({ onSelectOrder, onNewOrder 
                   
                   <td onClick={() => onSelectOrder(order.tableNumber)} className="py-4 px-6 cursor-pointer group">
                     {renderCustomerInfo(order)}
-                    <div className="text-xs text-gray-400">
-                      {new Date(order.createdAt).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}
+                    <div className="text-xs text-gray-400 mt-1">
+                      {formatDateTime(order.createdAt)}
                     </div>
                   </td>
 

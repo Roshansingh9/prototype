@@ -1,4 +1,4 @@
-// src/components/SalesDashboard.tsx
+// src/components/SalesDashboard.tsx - Updated with Full Date/Time
 import React, { useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../db/db';
@@ -26,6 +26,22 @@ export const SalesDashboard: React.FC = () => {
 
     return { orders: filteredOrders, totalRevenue, totalCash, totalOnline };
   }, [selectedDate]);
+
+  // Format full date and time
+  const formatDateTime = (dateString: string) => {
+    const date = new Date(dateString);
+    const dateStr = date.toLocaleDateString('en-IN', { 
+      day: '2-digit', 
+      month: 'short', 
+      year: 'numeric' 
+    });
+    const timeStr = date.toLocaleTimeString('en-IN', {
+      hour: '2-digit', 
+      minute: '2-digit',
+      hour12: true
+    });
+    return `${dateStr}, ${timeStr}`;
+  };
 
   const renderTableHistory = (order: any) => {
     const history = order.tableHistory || [order.tableNumber];
@@ -126,7 +142,7 @@ export const SalesDashboard: React.FC = () => {
           <table className="w-full text-left text-sm">
             <thead className="bg-white text-xs uppercase text-gray-400 border-b sticky top-0">
               <tr>
-                <th className="px-6 py-3">Time</th>
+                <th className="px-6 py-3">Date & Time</th>
                 <th className="px-6 py-3">Table History</th>
                 <th className="px-6 py-3 text-center">Payment Details</th>
                 <th className="px-6 py-3 text-right font-bold">Total</th>
@@ -136,11 +152,16 @@ export const SalesDashboard: React.FC = () => {
             <tbody className="divide-y divide-gray-100">
               {salesData.orders.map(order => (
                 <tr key={order.id} className="hover:bg-gray-50">
-                  <td className="px-6 py-3 text-gray-500">
-                    {new Date(order.paidAt!).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+                  <td className="px-6 py-3 text-gray-600">
+                    {formatDateTime(order.paidAt!)}
                   </td>
                   <td className="px-6 py-3">
                     {renderTableHistory(order)}
+                    {order.customerName && (
+                      <div className="text-xs text-orange-600 font-bold mt-1">
+                        👤 {order.customerName}
+                      </div>
+                    )}
                   </td>
                   <td className="px-6 py-3">
                     {editingOrderId === order.id ? (
