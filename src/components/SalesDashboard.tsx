@@ -2,9 +2,14 @@
 import React, { useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../db/db';
+import { orderService } from '../services/orderService';
 
 export const SalesDashboard: React.FC = () => {
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
+  const [editingOrderId, setEditingOrderId] = useState<string | null>(null);
+  const [editCash, setEditCash] = useState<string>('');
+  const [editOnline, setEditOnline] = useState<string>('');
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
 
   const salesData = useLiveQuery(async () => {
     const orders = await db.orders.where('status').equals('paid').toArray();
@@ -22,7 +27,6 @@ export const SalesDashboard: React.FC = () => {
     return { orders: filteredOrders, totalRevenue, totalCash, totalOnline };
   }, [selectedDate]);
 
-  // Render table history same as Orders tab
   const renderTableHistory = (order: any) => {
     const history = order.tableHistory || [order.tableNumber];
     
@@ -42,6 +46,43 @@ export const SalesDashboard: React.FC = () => {
         ))}
       </div>
     );
+  };
+
+  const handleEditClick = (order: any) => {
+    setEditingOrderId(order.id);
+    setEditCash(order.paymentCash.toString());
+    setEditOnline(order.paymentOnline.toString());
+  };
+
+  const handleSaveEdit = async () => {
+    if (!editingOrderId) return;
+
+    const cash = parseFloat(editCash) || 0;
+    const online = parseFloat(editOnline) || 0;
+    const newTotal = cash + online;
+
+    await db.orders.update(editingOrderId, {
+      paymentCash: cash,
+      paymentOnline: online,
+      totalAmount: newTotal,
+      updatedAt: new Date().toISOString()
+    });
+
+    setEditingOrderId(null);
+    setEditCash('');
+    setEditOnline('');
+  };
+
+  const handleCancelEdit = () => {
+    setEditingOrderId(null);
+    setEditCash('');
+    setEditOnline('');
+  };
+
+  const handleDeleteOrder = async () => {
+    if (!deleteConfirmId) return;
+    await orderService.deleteOrder(deleteConfirmId);
+    setDeleteConfirmId(null);
   };
 
   if (!salesData) return <div>Loading...</div>;
@@ -81,14 +122,15 @@ export const SalesDashboard: React.FC = () => {
         <div className="p-4 border-b bg-gray-50 font-bold text-gray-700">
           Transactions for {selectedDate}
         </div>
-        <div className="overflow-y-auto max-h-[400px]">
+        <div className="overflow-y-auto max-h-[500px]">
           <table className="w-full text-left text-sm">
-            <thead className="bg-white text-xs uppercase text-gray-400 border-b">
+            <thead className="bg-white text-xs uppercase text-gray-400 border-b sticky top-0">
               <tr>
                 <th className="px-6 py-3">Time</th>
                 <th className="px-6 py-3">Table History</th>
-                <th className="px-6 py-3 text-right">Method</th>
+                <th className="px-6 py-3 text-center">Payment Details</th>
                 <th className="px-6 py-3 text-right font-bold">Total</th>
+                <th className="px-6 py-3 text-center">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
@@ -100,25 +142,124 @@ export const SalesDashboard: React.FC = () => {
                   <td className="px-6 py-3">
                     {renderTableHistory(order)}
                   </td>
-                  <td className="px-6 py-3 text-right">
-                    {order.paymentCash > 0 && order.paymentOnline > 0 ? (
-                      <span className="text-purple-600">Mixed</span>
-                    ) : order.paymentCash > 0 ? (
-                      <span className="text-green-600">Cash</span>
+                  <td className="px-6 py-3">
+                    {editingOrderId === order.id ? (
+                      <div className="flex gap-2 justify-center">
+                        <div>
+                          <label className="text-xs text-gray-500 block">Cash</label>
+                          <input
+                            type="number"
+                            value={editCash}
+                            onChange={(e) => setEditCash(e.target.value)}
+                            className="w-20 px-2 py-1 border border-gray-300 rounded text-sm font-bold"
+                            placeholder="0"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-xs text-gray-500 block">Online</label>
+                          <input
+                            type="number"
+                            value={editOnline}
+                            onChange={(e) => setEditOnline(e.target.value)}
+                            className="w-20 px-2 py-1 border border-gray-300 rounded text-sm font-bold"
+                            placeholder="0"
+                          />
+                        </div>
+                      </div>
                     ) : (
-                      <span className="text-blue-600">Online</span>
+                      <div className="text-center">
+                        {order.paymentCash > 0 && order.paymentOnline > 0 ? (
+                          <div className="text-xs">
+                            <span className="text-green-600 font-bold">Cash: ₹{order.paymentCash}</span>
+                            <br />
+                            <span className="text-blue-600 font-bold">Online: ₹{order.paymentOnline}</span>
+                          </div>
+                        ) : order.paymentCash > 0 ? (
+                          <span className="text-green-600 font-bold">Cash Only</span>
+                        ) : (
+                          <span className="text-blue-600 font-bold">Online Only</span>
+                        )}
+                      </div>
                     )}
                   </td>
-                  <td className="px-6 py-3 text-right font-bold text-gray-900">₹{order.totalAmount}</td>
+                  <td className="px-6 py-3 text-right font-bold text-gray-900">
+                    ₹{editingOrderId === order.id 
+                      ? (parseFloat(editCash) || 0) + (parseFloat(editOnline) || 0)
+                      : order.totalAmount
+                    }
+                  </td>
+                  <td className="px-6 py-3">
+                    {editingOrderId === order.id ? (
+                      <div className="flex justify-center gap-2">
+                        <button
+                          onClick={handleSaveEdit}
+                          className="bg-green-600 hover:bg-green-700 text-white px-3 py-1 rounded text-xs font-bold"
+                        >
+                          Save
+                        </button>
+                        <button
+                          onClick={handleCancelEdit}
+                          className="bg-gray-400 hover:bg-gray-500 text-white px-3 py-1 rounded text-xs font-bold"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="flex justify-center gap-2">
+                        <button
+                          onClick={() => handleEditClick(order)}
+                          className="text-blue-600 hover:text-blue-800 font-bold text-xs underline"
+                        >
+                          Edit
+                        </button>
+                        <button
+                          onClick={() => setDeleteConfirmId(order.id)}
+                          className="text-red-600 hover:text-red-800 font-bold text-xs underline"
+                        >
+                          Delete
+                        </button>
+                      </div>
+                    )}
+                  </td>
                 </tr>
               ))}
               {salesData.orders.length === 0 && (
-                <tr><td colSpan={4} className="text-center py-8 text-gray-400">No sales on this date.</td></tr>
+                <tr><td colSpan={5} className="text-center py-8 text-gray-400">No sales on this date.</td></tr>
               )}
             </tbody>
           </table>
         </div>
       </div>
+
+      {/* Delete Confirmation Modal */}
+      {deleteConfirmId && (
+        <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl p-8 w-96 shadow-2xl text-center">
+            <div className="w-16 h-16 bg-red-100 text-red-600 rounded-full flex items-center justify-center mx-auto mb-4 text-3xl">
+              ⚠️
+            </div>
+            <h3 className="text-2xl font-bold text-gray-800 mb-2">Delete Transaction?</h3>
+            <p className="text-gray-600 mb-6">
+              This will permanently remove this order from sales records.
+            </p>
+            
+            <div className="flex gap-3">
+              <button
+                onClick={() => setDeleteConfirmId(null)}
+                className="flex-1 py-3 bg-gray-100 text-gray-600 font-bold rounded-xl hover:bg-gray-200"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleDeleteOrder}
+                className="flex-1 py-3 bg-red-600 text-white font-bold rounded-xl hover:bg-red-700"
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
