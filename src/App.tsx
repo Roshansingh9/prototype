@@ -1,5 +1,5 @@
 // src/App.tsx
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { Layout } from './components/Layout';
 import { MenuManager } from './components/MenuManager';
 import { TableGrid } from './components/TableGrid';
@@ -7,7 +7,7 @@ import { OrderView } from './components/OrderView';
 import { OrderList } from './components/OrderList';
 import { SalesDashboard } from './components/SalesDashboard';
 import { orderService } from './services/orderService';
-import { googleDriveService } from './services/googleDriveService';
+import { backupService } from './services/backupService';
 import { configService } from './services/configService';
 import type { Order } from './db/db';
 
@@ -18,52 +18,12 @@ function App() {
   const [returnView, setReturnView] = useState<View>('tables'); 
   const [activeOrder, setActiveOrder] = useState<Order | null>(null);
   
-  // Cloud Sync State
-  const [isGapiReady, setIsGapiReady] = useState(false);
-  const [isSyncing, setIsSyncing] = useState(false);
-  const [syncStatus, setSyncStatus] = useState("Init...");
-  
   const appConfig = configService.getConfig();
 
-  // Initialize Google Drive
-  useEffect(() => {
-    googleDriveService.initClient().then(() => {
-      setIsGapiReady(true);
-      const auth = (window as any).gapi?.auth2?.getAuthInstance();
-      setSyncStatus(auth?.isSignedIn.get() ? "Ready" : "Not Linked");
-    });
-    window.addEventListener('online', handleNetworkRecovery);
-    return () => window.removeEventListener('online', handleNetworkRecovery);
-  }, []);
-
-  const handleNetworkRecovery = () => {
-    if (localStorage.getItem('POS_NEEDS_BACKUP') === 'true') triggerSmartSync();
-  };
-
-  const triggerSmartSync = async () => {
-    if (!navigator.onLine) { setSyncStatus("Offline"); return; }
-    setIsSyncing(true); setSyncStatus("Syncing...");
-    const result = await googleDriveService.syncDataToDrive();
-    if (result.success) {
-      setSyncStatus(`Saved ${new Date().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}`);
-      localStorage.removeItem('POS_NEEDS_BACKUP');
-    } else {
-      setSyncStatus("Failed");
-    }
-    setIsSyncing(false);
-  };
-
-  const handleGoogleLogin = async () => {
-    await googleDriveService.signIn();
-    triggerSmartSync();
-  };
-
-  // FEATURE 5 & 6: Updated table click handler with customer name support
   const handleTableClick = async (tableNum: string, customerName?: string, source?: View) => {
     try {
       let order = await orderService.getOrderByTable(tableNum);
       if (!order) {
-        // Create order with optional customer name
         order = await orderService.createOrder(tableNum, customerName);
       }
       if (order) { 
@@ -87,6 +47,35 @@ function App() {
     setCurrentView(returnView);
   };
 
+  // NEW: Local Backup Handlers
+  const handleExportData = async () => {
+    const success = await backupService.exportToExcel();
+    if (success) {
+      alert('✅ Backup downloaded successfully!');
+    } else {
+      alert('❌ Failed to create backup');
+    }
+  };
+
+  const handleImportData = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      if (!confirm('⚠️ This will replace all current data. Continue?')) {
+        e.target.value = ''; // Reset input
+        return;
+      }
+      
+      const success = await backupService.importFromExcel(file);
+      if (success) {
+        alert('✅ Data restored successfully!');
+        window.location.reload();
+      } else {
+        alert('❌ Failed to restore data. Please check the file format.');
+      }
+      e.target.value = ''; // Reset input
+    }
+  };
+
   return (
     <Layout>
       {/* HEADER */}
@@ -97,22 +86,28 @@ function App() {
           <div className="text-[10px] text-gray-500 font-bold tracking-wide">{appConfig.restaurantAddress}</div>
         </div>
 
-        <div className="flex items-center gap-4">
-          <div className="flex items-center gap-2 bg-gray-50 px-3 py-1.5 rounded-full border border-gray-100">
-             <div className={`w-2 h-2 rounded-full ${navigator.onLine ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`}></div>
-             <span className="text-xs font-bold text-gray-600">
-               {isSyncing ? '☁️ Syncing...' : syncStatus}
-             </span>
-          </div>
+        {/* NEW: Local Backup Buttons */}
+        <div className="flex items-center gap-3">
+          <button 
+            onClick={handleExportData}
+            className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-bold shadow-sm transition-all flex items-center gap-2"
+            title="Download backup file"
+          >
+            📥 Backup
+          </button>
           
-          {isGapiReady && !(window as any).gapi?.auth2?.getAuthInstance()?.isSignedIn?.get() && (
-             <button 
-               onClick={handleGoogleLogin} 
-               className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-1.5 rounded-lg text-xs font-bold shadow-sm transition-all"
-             >
-               Connect Backup
-             </button>
-          )}
+          <label 
+            className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg text-sm font-bold shadow-sm transition-all cursor-pointer flex items-center gap-2"
+            title="Restore from backup file"
+          >
+            📤 Restore
+            <input 
+              type="file" 
+              accept=".xlsx"
+              onChange={handleImportData}
+              className="hidden"
+            />
+          </label>
         </div>
       </div>
 
@@ -136,13 +131,15 @@ function App() {
 
       {/* MAIN CONTENT AREA */}
       <div className="animate-fade-in w-full relative h-full flex-1">
-        {/* FEATURE 5: TableGrid receives proper callback with source tracking */}
         {currentView === 'tables' && (
           <TableGrid onTableSelect={(t, name) => handleTableClick(t, name, 'tables')} />
         )}
         
         {currentView === 'active-list' && (
-          <OrderList onSelectOrder={(t) => handleTableClick(t, undefined, 'active-list')} />
+          <OrderList 
+            onSelectOrder={(t) => handleTableClick(t, undefined, 'active-list')}
+            onNewOrder={() => setCurrentView('tables')}
+          />
         )}
         
         {currentView === 'menu' && <MenuManager />}
@@ -153,7 +150,7 @@ function App() {
         )}
       </div>
     </Layout>
-  )
+  );
 }
 
 const NavButton = ({ active, onClick, children }: any) => (
