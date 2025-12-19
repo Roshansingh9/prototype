@@ -1,4 +1,4 @@
-// src/components/SalesDashboard.tsx - Updated with Full Date/Time
+// src/components/SalesDashboard.tsx - FIXED VERSION
 import React, { useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../db/db';
@@ -10,14 +10,29 @@ export const SalesDashboard: React.FC = () => {
   const [editCash, setEditCash] = useState<string>('');
   const [editOnline, setEditOnline] = useState<string>('');
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+  const [paymentFilter, setPaymentFilter] = useState<'all' | 'cash' | 'online' | 'mixed'>('all');
 
   const salesData = useLiveQuery(async () => {
     const orders = await db.orders.where('status').equals('paid').toArray();
 
-    const filteredOrders = orders.filter(o => {
+    let filteredOrders = orders.filter(o => {
       if (!o.paidAt) return false;
       const orderDate = new Date(o.paidAt).toISOString().split('T')[0];
       return orderDate === selectedDate;
+    });
+
+    if (paymentFilter === 'cash') {
+      filteredOrders = filteredOrders.filter(o => o.paymentCash > 0 && o.paymentOnline === 0);
+    } else if (paymentFilter === 'online') {
+      filteredOrders = filteredOrders.filter(o => o.paymentOnline > 0 && o.paymentCash === 0);
+    } else if (paymentFilter === 'mixed') {
+      filteredOrders = filteredOrders.filter(o => o.paymentCash > 0 && o.paymentOnline > 0);
+    }
+
+    filteredOrders.sort((a, b) => {
+      const dateA = a.paidAt ? new Date(a.paidAt).getTime() : 0;
+      const dateB = b.paidAt ? new Date(b.paidAt).getTime() : 0;
+      return dateB - dateA;
     });
 
     const totalRevenue = filteredOrders.reduce((sum, o) => sum + o.totalAmount, 0);
@@ -25,9 +40,8 @@ export const SalesDashboard: React.FC = () => {
     const totalOnline = filteredOrders.reduce((sum, o) => sum + o.paymentOnline, 0);
 
     return { orders: filteredOrders, totalRevenue, totalCash, totalOnline };
-  }, [selectedDate]);
+  }, [selectedDate, paymentFilter]);
 
-  // Format full date and time
   const formatDateTime = (dateString: string) => {
     const date = new Date(dateString);
     const dateStr = date.toLocaleDateString('en-IN', { 
@@ -108,14 +122,28 @@ export const SalesDashboard: React.FC = () => {
       <div className="flex justify-between items-center mb-8">
         <h2 className="text-3xl font-bold text-gray-800">📈 Sales Insights</h2>
         
-        <div className="flex items-center gap-2 bg-white p-2 rounded-lg border shadow-sm">
-          <span className="text-sm font-bold text-gray-500">Filter Date:</span>
-          <input 
-            type="date" 
-            value={selectedDate}
-            onChange={(e) => setSelectedDate(e.target.value)}
-            className="font-bold text-gray-800 outline-none cursor-pointer"
-          />
+        <div className="flex items-center gap-4">
+          <div className="flex items-center gap-2 bg-white p-2 rounded-lg border shadow-sm">
+            <span className="text-sm font-bold text-gray-500">Filter Date:</span>
+            <input 
+              type="date" 
+              value={selectedDate}
+              onChange={(e) => setSelectedDate(e.target.value)}
+              className="font-bold text-gray-800 outline-none cursor-pointer"
+            />
+          </div>
+          
+          <div className="flex bg-gray-100 p-1.5 rounded-xl border border-gray-200">
+            {['all', 'cash', 'online', 'mixed'].map((filter) => (
+              <button 
+                key={filter} 
+                onClick={() => setPaymentFilter(filter as any)} 
+                className={`px-4 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wide transition-all duration-200 ${paymentFilter === filter ? 'bg-white text-gray-800 shadow-md transform scale-105' : 'text-gray-500 hover:bg-gray-200'}`}
+              >
+                {filter}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
@@ -252,7 +280,6 @@ export const SalesDashboard: React.FC = () => {
         </div>
       </div>
 
-      {/* Delete Confirmation Modal */}
       {deleteConfirmId && (
         <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50 backdrop-blur-sm">
           <div className="bg-white rounded-2xl p-8 w-96 shadow-2xl text-center">

@@ -1,4 +1,4 @@
-// src/components/OrderView.tsx - Enhanced with Customer Name Edit & Color-Coded Tables
+// src/components/OrderView.tsx - FIXED VERSION
 import React, { useState, useEffect } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db, type Order, type Product } from '../db/db';
@@ -20,7 +20,6 @@ const ALL_TABLES = [
 const DAYS_MAP = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
 export const OrderView: React.FC<OrderViewProps> = ({ order, onBack }) => {
-  // Use live query to get real-time updates
   const liveOrder = useLiveQuery(() => db.orders.get(order.id), [order.id]);
   const currentOrder = liveOrder || order;
   
@@ -31,13 +30,13 @@ export const OrderView: React.FC<OrderViewProps> = ({ order, onBack }) => {
 
   const [selectedCategoryId, setSelectedCategoryId] = useState<string>('');
   const [itemQuantities, setItemQuantities] = useState<{ [key: string]: number }>({});
+  const [searchQuery, setSearchQuery] = useState('');
   
   const [isChangingTable, setIsChangingTable] = useState(false);
   const [tableName, setTableName] = useState(currentOrder.tableNumber);
   const [showPayModal, setShowPayModal] = useState(false);
   const [pendingMergeTable, setPendingMergeTable] = useState<string | null>(null);
   
-  // NEW: Customer name editing
   const [isEditingCustomer, setIsEditingCustomer] = useState(false);
   const [editedCustomerName, setEditedCustomerName] = useState(currentOrder.customerName || '');
 
@@ -86,9 +85,17 @@ export const OrderView: React.FC<OrderViewProps> = ({ order, onBack }) => {
   };
 
   const handleDecreaseItem = async (itemName: string) => {
-    const item = orderItems?.find(i => i.itemName === itemName);
-    if (item) {
-      await orderService.removeItem(order.id, item.id!, item.total);
+    const items = orderItems?.filter(i => i.itemName === itemName) || [];
+    if (items.length === 0) return;
+    
+    const totalQty = items.reduce((sum, item) => sum + item.quantity, 0);
+    
+    if (totalQty > 1) {
+      const itemToUpdate = items[0];
+      await orderService.updateLineItem(order.id, itemToUpdate.id!, itemToUpdate.quantity - 1, itemToUpdate.rate);
+    } else {
+      const itemToRemove = items[0];
+      await orderService.removeItem(order.id, itemToRemove.id!, itemToRemove.total);
     }
   };
 
@@ -110,11 +117,10 @@ export const OrderView: React.FC<OrderViewProps> = ({ order, onBack }) => {
     }
   };
 
-  // NEW: Save customer name (allows empty to clear name)
   const handleSaveCustomerName = async () => {
     const finalName = editedCustomerName.trim();
     await db.orders.update(currentOrder.id, {
-      customerName: finalName || undefined, // Clear if empty
+      customerName: finalName || undefined,
       updatedAt: new Date().toISOString()
     });
     setIsEditingCustomer(false);
@@ -128,9 +134,15 @@ export const OrderView: React.FC<OrderViewProps> = ({ order, onBack }) => {
     onBack();
   };
 
-  const filteredProducts = allProducts?.filter(p => 
-    p.categoryId === selectedCategoryId && p.isActive
-  ) || [];
+  let filteredProducts = allProducts?.filter(p => p.isActive) || [];
+  
+  if (searchQuery.trim()) {
+    filteredProducts = filteredProducts.filter(p => 
+      p.name.toLowerCase().includes(searchQuery.toLowerCase())
+    );
+  } else {
+    filteredProducts = filteredProducts.filter(p => p.categoryId === selectedCategoryId);
+  }
 
   if (!categories || !allProducts) {
     return (
@@ -144,12 +156,10 @@ export const OrderView: React.FC<OrderViewProps> = ({ order, onBack }) => {
     <div className="bg-gray-100 min-h-screen">
       <div className="menu-container max-w-4xl mx-auto bg-white shadow-xl min-h-screen">
         
-        {/* HEADER - With Editable Customer Name */}
         <header className="sticky top-0 bg-indigo-700 text-white p-4 border-b z-10 shadow-lg flex justify-between items-center">
           <div className="flex-1">
             <h1 className="text-2xl font-extrabold">The Classy Menu</h1>
             
-            {/* CUSTOMER NAME SECTION - Always Editable */}
             <div className="flex items-center gap-2 mt-1">
               <p className="text-indigo-200 text-sm italic">Table: {tableName}</p>
               <span className="text-indigo-300">•</span>
@@ -220,7 +230,6 @@ export const OrderView: React.FC<OrderViewProps> = ({ order, onBack }) => {
           </div>
         </header>
 
-        {/* TABLE CHANGE DROPDOWN - Color-coded by availability */}
         {isChangingTable && (
           <div className="bg-yellow-50 border-b border-yellow-200 p-4">
             <label className="block text-sm font-bold text-gray-700 mb-2">Select New Table:</label>
@@ -260,16 +269,24 @@ export const OrderView: React.FC<OrderViewProps> = ({ order, onBack }) => {
 
         <main className="grid grid-cols-1 md:grid-cols-3 gap-6 p-6">
           
-          {/* LEFT SECTION - Menu Items (2/3 width) */}
           <section className="md:col-span-2">
             
-            {/* CATEGORY FILTER DROPDOWN */}
             <div className="bg-white p-4 mb-4 rounded-xl border border-gray-200 shadow-sm">
               <h3 className="text-xl font-bold text-gray-800 mb-3">Filter Menu</h3>
+              
+              <input
+                type="text"
+                placeholder="Search items..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full p-3 mb-3 border-2 border-gray-300 rounded-lg font-bold text-gray-700 bg-white focus:border-indigo-500 focus:outline-none"
+              />
+              
               <select 
                 className="w-full p-3 border-2 border-gray-300 rounded-lg font-bold text-gray-700 bg-white focus:border-indigo-500 focus:outline-none"
                 value={selectedCategoryId}
                 onChange={(e) => setSelectedCategoryId(e.target.value)}
+                disabled={!!searchQuery.trim()}
               >
                 {activeCategories.map(cat => (
                   <option key={cat.id} value={cat.id}>
@@ -279,7 +296,6 @@ export const OrderView: React.FC<OrderViewProps> = ({ order, onBack }) => {
               </select>
             </div>
 
-            {/* MENU ITEMS LIST */}
             <h2 className="text-2xl font-bold text-gray-800 mb-4 border-b pb-2">Menu Items</h2>
             <div className="space-y-4">
               {filteredProducts.length === 0 ? (
@@ -339,11 +355,9 @@ export const OrderView: React.FC<OrderViewProps> = ({ order, onBack }) => {
             </div>
           </section>
 
-          {/* RIGHT SIDEBAR - Cart (1/3 width) */}
           <aside className="md:col-span-1 sticky top-20 h-fit bg-white p-4 rounded-xl shadow-lg border">
             <h2 className="text-xl font-bold text-gray-800 mb-4 border-b pb-2">Your Current Tab & Cart</h2>
 
-            {/* EXISTING TAB ITEMS WITH +/- CONTROLS */}
             <div className="mb-4 space-y-3 max-h-96 overflow-y-auto">
               {itemCount === 0 ? (
                 <p className="text-sm text-gray-400">Cart is empty.</p>
@@ -357,7 +371,6 @@ export const OrderView: React.FC<OrderViewProps> = ({ order, onBack }) => {
                       </div>
                       <div className="font-bold text-indigo-600">Rs. {item.total}</div>
                     </div>
-                    {/* +/- CONTROLS IN CART */}
                     <div className="flex items-center justify-between mt-2 pt-2 border-t border-gray-200">
                       <div className="flex items-center gap-2">
                         <button
@@ -390,7 +403,6 @@ export const OrderView: React.FC<OrderViewProps> = ({ order, onBack }) => {
 
             <hr className="my-4 border-dashed" />
 
-            {/* CART TOTAL */}
             <div className="pt-4 border-t-2">
               <div className="flex justify-between items-center text-xl font-extrabold mb-4">
                 <span>Cart Total:</span>
@@ -430,7 +442,6 @@ export const OrderView: React.FC<OrderViewProps> = ({ order, onBack }) => {
         </main>
       </div>
 
-      {/* Footer */}
       <footer className="text-center py-3 text-xs bg-gray-200 text-gray-600">
         Restaurant POS System
       </footer>
