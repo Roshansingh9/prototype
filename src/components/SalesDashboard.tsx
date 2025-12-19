@@ -57,6 +57,7 @@ export const SalesDashboard: React.FC = () => {
     return `${dateStr}, ${timeStr}`;
   };
 
+  // Show merge direction: source tables → final destination
   const renderTableHistory = (order: any) => {
     const history = order.tableHistory || [order.tableNumber];
     

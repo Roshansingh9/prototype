@@ -95,7 +95,7 @@ export const OrderView: React.FC<OrderViewProps> = ({ order, onBack }) => {
       await orderService.updateLineItem(order.id, itemToUpdate.id!, itemToUpdate.quantity - 1, itemToUpdate.rate);
     } else {
       const itemToRemove = items[0];
-      await orderService.removeItem(order.id, itemToRemove.id!, itemToRemove.total);
+      await orderService.removeItem(order.id, itemToRemove.id!);
     }
   };
 
@@ -390,7 +390,7 @@ export const OrderView: React.FC<OrderViewProps> = ({ order, onBack }) => {
                         </button>
                       </div>
                       <button
-                        onClick={() => orderService.removeItem(order.id, item.id!, item.total)}
+                        onClick={() => orderService.removeItem(order.id, item.id!)}
                         className="text-red-500 hover:text-red-700 text-xs font-bold underline"
                       >
                         Remove

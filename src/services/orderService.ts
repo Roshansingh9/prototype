@@ -44,7 +44,7 @@ export const orderService = {
     });
   },
 
-  // UPDATED: Track table history on movement
+  // FIXED: Track table history correctly - source → destination
   updateTableNumber: async (currentOrderId: string, newTableNumber: string) => {
     const currentOrder = await db.orders.get(currentOrderId);
     if (!currentOrder) throw new Error("Current order not found");
@@ -54,30 +54,42 @@ export const orderService = {
       .first();
 
     if (targetOrder) {
-      // MERGE SCENARIO
+      // MERGE SCENARIO: currentOrder moves INTO targetOrder
+      // Result: targetOrder absorbs currentOrder's items
       await db.transaction('rw', db.orders, db.orderItems, async () => {
         const currentItems = await db.orderItems.where({ orderId: currentOrderId }).toArray();
         
+        // Tag items with their original table
         for (const item of currentItems) {
           await db.orderItems.update(item.id!, { 
             orderId: targetOrder.id,
-            originalTable: currentOrder.tableNumber 
+            originalTable: item.originalTable || currentOrder.tableNumber
           });
         }
 
-        // Merge table histories
-        const mergedHistory = [
-          ...(targetOrder.tableHistory || [targetOrder.tableNumber]),
-          ...(currentOrder.tableHistory || [currentOrder.tableNumber])
-        ];
-        const uniqueHistory = Array.from(new Set(mergedHistory));
+        // Build history: target's history + current's history (in order)
+        const targetHistory = targetOrder.tableHistory || [targetOrder.tableNumber];
+        const currentHistory = currentOrder.tableHistory || [currentOrder.tableNumber];
+        
+        // Merge histories maintaining chronological order
+        const mergedHistory = [...targetHistory];
+        for (const table of currentHistory) {
+          if (!mergedHistory.includes(table)) {
+            mergedHistory.push(table);
+          }
+        }
+        
+        // Add final destination if not already present
+        if (!mergedHistory.includes(newTableNumber)) {
+          mergedHistory.push(newTableNumber);
+        }
 
         const allItems = await db.orderItems.where({ orderId: targetOrder.id }).toArray();
         const grandTotal = allItems.reduce((sum, i) => sum + i.total, 0);
         
         await db.orders.update(targetOrder.id, { 
           totalAmount: grandTotal,
-          tableHistory: uniqueHistory,
+          tableHistory: mergedHistory,
           updatedAt: new Date().toISOString() 
         });
 
@@ -85,15 +97,18 @@ export const orderService = {
       });
       return { merged: true, newOrderId: targetOrder.id };
     } else {
-      // SIMPLE RENAME - Add to history
+      // SIMPLE MOVE: Just update table number and append to history
       const currentHistory = currentOrder.tableHistory || [currentOrder.tableNumber];
-      if (!currentHistory.includes(newTableNumber)) {
-        currentHistory.push(newTableNumber);
+      const newHistory = [...currentHistory];
+      
+      // Only append if new table is different and not already at the end
+      if (newTableNumber !== currentHistory[currentHistory.length - 1]) {
+        newHistory.push(newTableNumber);
       }
       
       await db.orders.update(currentOrderId, { 
         tableNumber: newTableNumber,
-        tableHistory: currentHistory,
+        tableHistory: newHistory,
         updatedAt: new Date().toISOString() 
       });
       return { merged: false, newOrderId: currentOrderId };
@@ -127,7 +142,7 @@ export const orderService = {
     });
   },
 
-  removeItem: async (orderId: string, itemId: number, itemTotal: number) => {
+  removeItem: async (orderId: string, itemId: number) => {
     await db.transaction('rw', db.orders, db.orderItems, async () => {
       await db.orderItems.delete(itemId);
       const allItems = await db.orderItems.where({ orderId }).toArray();

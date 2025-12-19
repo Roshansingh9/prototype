@@ -76,7 +76,6 @@ export const OrderList: React.FC<OrderListProps> = ({ onSelectOrder, onNewOrder 
     return renderTableHistory(order);
   };
 
-  // NEW: Format full date and time
   const formatDateTime = (dateString: string) => {
     const date = new Date(dateString);
     const dateStr = date.toLocaleDateString('en-IN', { 
@@ -100,19 +99,29 @@ export const OrderList: React.FC<OrderListProps> = ({ onSelectOrder, onNewOrder 
     }
 
     const grouped = items.reduce((acc: any, item: any) => {
-      if (acc[item.itemName]) {
-        acc[item.itemName] += item.quantity;
+      const key = item.originalTable ? `${item.itemName}::${item.originalTable}` : item.itemName;
+      if (acc[key]) {
+        acc[key].quantity += item.quantity;
       } else {
-        acc[item.itemName] = item.quantity;
+        acc[key] = {
+          itemName: item.itemName,
+          quantity: item.quantity,
+          originalTable: item.originalTable
+        };
       }
       return acc;
     }, {});
 
     return (
       <div className="space-y-1">
-        {Object.entries(grouped).map(([name, qty]: [string, any]) => (
-          <div key={name} className="text-sm text-gray-700">
-            {name} × {qty}
+        {Object.values(grouped).map((item: any, idx: number) => (
+          <div key={idx} className={`text-sm font-medium ${item.originalTable ? 'text-purple-700 bg-purple-50 px-2 py-1 rounded' : 'text-gray-700'}`}>
+            {item.itemName} × {item.quantity}
+            {item.originalTable && (
+              <span className="text-xs text-purple-600 ml-2 font-bold">
+                (from {item.originalTable})
+              </span>
+            )}
           </div>
         ))}
       </div>
@@ -173,7 +182,7 @@ export const OrderList: React.FC<OrderListProps> = ({ onSelectOrder, onNewOrder 
                            ? 'bg-green-100 text-green-700 border-green-200 hover:bg-green-200' 
                            : 'bg-orange-100 text-orange-700 border-orange-200 hover:bg-orange-200'}`}
                      >
-                       {order.status === 'served' ? '✅ SERVED' : '🕒 PREPARING'}
+                       {order.status === 'served' ? '✅ SERVED' : '🍕 PREPARING'}
                        <span className="text-xs opacity-50">▼</span>
                      </button>
                      {openStatusMenuId === order.id && (
@@ -182,7 +191,7 @@ export const OrderList: React.FC<OrderListProps> = ({ onSelectOrder, onNewOrder 
                             onClick={() => handleStatusUpdate(order.id, 'order')} 
                             className="w-full text-left px-4 py-3 hover:bg-orange-50 text-xs font-bold text-orange-700 flex items-center gap-2 border-b border-gray-100"
                           >
-                            🕒 PREPARING
+                            🍕 PREPARING
                           </button>
                           <button 
                             onClick={() => handleStatusUpdate(order.id, 'served')} 

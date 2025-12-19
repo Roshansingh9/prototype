@@ -1,7 +1,7 @@
 // src/components/MenuManager.tsx
 import React, { useEffect, useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { db, type Category, type Product } from '../db/db';
+import { db, type Product } from '../db/db';
 import { categoryService } from '../services/categoryService';
 import { productService } from '../services/productService';
 
@@ -125,6 +125,13 @@ export const MenuManager: React.FC = () => {
   const toggleDay = (day: string) => { 
     if (selectedDays.includes(day)) setSelectedDays(selectedDays.filter(d => d !== day)); 
     else setSelectedDays([...selectedDays, day]); 
+  };
+
+  const getAvailabilityDisplay = (product: Product) => {
+    if (!product.availableDays || product.availableDays.length === 0) {
+      return 'All days';
+    }
+    return product.availableDays.join(', ');
   };
 
   return (
@@ -261,6 +268,9 @@ export const MenuManager: React.FC = () => {
                         {p.name}
                       </div>
                       <div className="text-sm font-bold text-green-600 mt-1">₹{p.price}</div>
+                      <div className="text-xs text-gray-500 mt-1">
+                        {getAvailabilityDisplay(p)}
+                      </div>
                     </div>
                     <div className="flex flex-col items-end gap-3">
                        <button 
